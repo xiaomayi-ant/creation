@@ -12,7 +12,7 @@ from src.script.nodes import (
     plan_story_node,
     write_scenes_node,
     verify_script_node,
-    route_after_verify,
+    review_script_node,
     finalize_node,
 )
 from src.agent.script_data import build_script_data
@@ -31,7 +31,8 @@ def create_script_graph(with_memory: bool = True):
     2. plan_story: 规划故事结构（可选）
     3. write_scenes: 按计划生成剧本内容 + AIGC 分镜规格
     4. verify_script: 确定性规则审核
-    5. [条件] 不通过且未达上限则重写，否则 finalize
+    5. review_script: ReviewSubagent 语义审核 + Command 动态路由
+    6. [条件] 不通过且未达上限则重写，否则 finalize
 
     Args:
         with_memory: 是否启用记忆功能（会话持久化）
@@ -50,6 +51,7 @@ def create_script_graph(with_memory: bool = True):
     workflow.add_node("plan_story", plan_story_node)
     workflow.add_node("write_scenes", write_scenes_node)
     workflow.add_node("verify_script", verify_script_node)
+    workflow.add_node("review_script", review_script_node)
     workflow.add_node("finalize", finalize_node)
 
     # 设置入口点
@@ -59,14 +61,7 @@ def create_script_graph(with_memory: bool = True):
     workflow.add_edge("load_reference", "plan_story")
     workflow.add_edge("plan_story", "write_scenes")
     workflow.add_edge("write_scenes", "verify_script")
-    workflow.add_conditional_edges(
-        "verify_script",
-        route_after_verify,
-        {
-            "revise": "write_scenes",
-            "finalize": "finalize",
-        },
-    )
+    workflow.add_edge("verify_script", "review_script")
     workflow.add_edge("finalize", END)
 
     # 编译工作流
@@ -126,6 +121,7 @@ async def run_script_agent_stream(
         "draft_script": None,
         "final_script": None,
         "verification_result": None,
+        "quality_review_result": None,
         "revision_feedback": None,
         "iteration_count": 0,
         "revision_count": 0,
@@ -148,7 +144,14 @@ async def run_script_agent_stream(
             # 节点开始
             if event_kind == "on_chain_start":
                 node_name = event.get("name", "")
-                if node_name in ["load_reference", "plan_story", "write_scenes", "verify_script", "finalize"]:
+                if node_name in [
+                    "load_reference",
+                    "plan_story",
+                    "write_scenes",
+                    "verify_script",
+                    "review_script",
+                    "finalize",
+                ]:
                     yield {
                         "type": "node_start",
                         "node": node_name,
@@ -157,7 +160,14 @@ async def run_script_agent_stream(
             # 节点结束
             elif event_kind == "on_chain_end":
                 node_name = event.get("name", "")
-                if node_name in ["load_reference", "plan_story", "write_scenes", "verify_script", "finalize"]:
+                if node_name in [
+                    "load_reference",
+                    "plan_story",
+                    "write_scenes",
+                    "verify_script",
+                    "review_script",
+                    "finalize",
+                ]:
                     output = event.get("data", {}).get("output", {})
                     if isinstance(output, dict):
                         if output.get("final_script"):

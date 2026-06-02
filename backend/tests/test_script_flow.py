@@ -1,7 +1,9 @@
 """Current script graph plan-and-execute tests."""
 
+import src.script.nodes as script_nodes
 from src.script.graph import create_script_graph
-from src.script.nodes import plan_story_node, verify_script_node, route_after_verify
+from src.script.nodes import plan_story_node, review_script_node, verify_script_node
+from src.script.review_agent import normalize_review_result
 
 
 def _base_state(**overrides):
@@ -48,6 +50,7 @@ def _base_state(**overrides):
         "draft_script": None,
         "final_script": None,
         "verification_result": None,
+        "quality_review_result": None,
         "revision_feedback": None,
         "iteration_count": 0,
         "revision_count": 0,
@@ -58,23 +61,8 @@ def _base_state(**overrides):
     return state
 
 
-def test_create_script_graph_with_verify_node():
-    graph = create_script_graph(with_memory=False)
-    assert graph is not None
-
-
-def test_plan_story_node_builds_script_plan_from_references():
-    result = plan_story_node(_base_state(), {})
-    plan = result["script_plan"]
-
-    assert plan["goal"] == "一个少年在雨夜发现神秘书店"
-    assert plan["references"][0]["ref_id"] == "novel-a#node-1"
-    assert plan["scene_plan"]
-    assert plan["scene_plan"][0]["source_refs"] == ["novel-a#node-1"]
-
-
-def test_verify_script_node_accepts_valid_aigc_json():
-    final_script = """
+def _valid_final_script():
+    return """
 ## 剧本概览
 故事核心：少年在雨夜发现神秘书店。
 
@@ -104,10 +92,27 @@ def test_verify_script_node_accepts_valid_aigc_json():
   ]
 }
 """
-    result = verify_script_node(_base_state(final_script=final_script))
+
+
+def test_create_script_graph_with_verify_node():
+    graph = create_script_graph(with_memory=False)
+    assert graph is not None
+
+
+def test_plan_story_node_builds_script_plan_from_references():
+    result = plan_story_node(_base_state(), {})
+    plan = result["script_plan"]
+
+    assert plan["goal"] == "一个少年在雨夜发现神秘书店"
+    assert plan["references"][0]["ref_id"] == "novel-a#node-1"
+    assert plan["scene_plan"]
+    assert plan["scene_plan"][0]["source_refs"] == ["novel-a#node-1"]
+
+
+def test_verify_script_node_accepts_valid_aigc_json():
+    result = verify_script_node(_base_state(final_script=_valid_final_script()))
 
     assert result["verification_result"]["passed"] is True
-    assert route_after_verify({**_base_state(), **result}) == "finalize"
 
 
 def test_verify_script_node_routes_invalid_json_to_revision():
@@ -115,4 +120,67 @@ def test_verify_script_node_routes_invalid_json_to_revision():
 
     assert result["verification_result"]["passed"] is False
     assert result["revision_count"] == 1
-    assert route_after_verify({**_base_state(), **result}) == "revise"
+
+
+def test_review_script_node_skips_subagent_when_structure_fails():
+    verified = verify_script_node(_base_state(final_script="## 剧本概览\n无 JSON"))
+
+    command = review_script_node({**_base_state(), **verified})
+
+    assert command.goto == "write_scenes"
+    assert command.update["quality_review_result"]["review_skipped"] is True
+    assert "AIGC执行规格" in command.update["revision_feedback"]
+
+
+def test_review_script_node_uses_command_for_semantic_rewrite(monkeypatch):
+    def fake_review_subagent(_input_state):
+        return {
+            "passed": False,
+            "review_available": True,
+            "alignment_score": 5,
+            "fluency_score": 7,
+            "story_consistency_score": 6,
+            "aigc_executability_score": 8,
+            "overall_score": 65,
+            "issues": [
+                {
+                    "type": "alignment",
+                    "severity": "major",
+                    "message": "没有突出用户要求的神秘书店。",
+                }
+            ],
+            "revision_feedback": "强化神秘书店设定，并让每个镜头围绕该悬念推进。",
+            "summary": "需要重写以贴合用户意图。",
+        }
+
+    monkeypatch.setattr(script_nodes, "run_review_subagent", fake_review_subagent)
+    verified = verify_script_node(_base_state(final_script=_valid_final_script()))
+
+    command = review_script_node({**_base_state(final_script=_valid_final_script()), **verified})
+
+    assert command.goto == "write_scenes"
+    assert command.update["revision_count"] == 1
+    assert command.update["quality_review_result"]["overall_score"] == 65
+    assert "神秘书店" in command.update["revision_feedback"]
+
+
+def test_normalize_review_result_parses_fenced_json():
+    result = normalize_review_result(
+        """```json
+        {
+          "passed": true,
+          "alignment_score": 9,
+          "fluency_score": 8,
+          "story_consistency_score": 8,
+          "aigc_executability_score": 9,
+          "overall_score": 84,
+          "issues": [],
+          "revision_feedback": "",
+          "summary": "通过"
+        }
+        ```"""
+    )
+
+    assert result["passed"] is True
+    assert result["review_available"] is True
+    assert result["overall_score"] == 84

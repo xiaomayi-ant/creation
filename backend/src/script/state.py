@@ -32,6 +32,7 @@ class ScriptAgentState(TypedDict):
     draft_script: Optional[str]  # 生成的剧本草稿
     final_script: Optional[str]  # 最终剧本
     verification_result: Optional[dict]  # 规则审核结果
+    quality_review_result: Optional[dict]  # ReviewSubagent 语义审核结果
     revision_feedback: Optional[str]  # 反馈给 Executor 的重写建议
 
     # ============ 元数据 ============

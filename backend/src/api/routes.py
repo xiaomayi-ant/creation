@@ -272,6 +272,7 @@ async def chat_submit(request: ConfigSubmitRequest):
             "move_guidance_ir": None,
             "script_plan": None,
             "verification_result": None,
+            "quality_review_result": None,
             "revision_count": 0,
             "llm_prompt_used": None,
             "final_result": None,
@@ -355,6 +356,16 @@ async def chat_submit(request: ConfigSubmitRequest):
                         verification_result = output.get("verification_result")
                         if isinstance(verification_result, dict):
                             artifact_payload["verification_result"] = verification_result
+                        revision_count = output.get("revision_count")
+                        if isinstance(revision_count, int):
+                            artifact_payload["revision_count"] = revision_count
+
+                if event.get("type") == "node_end" and event.get("node") == "review_script":
+                    output = event.get("output")
+                    if isinstance(output, dict):
+                        quality_review_result = output.get("quality_review_result")
+                        if isinstance(quality_review_result, dict):
+                            artifact_payload["quality_review_result"] = quality_review_result
                         revision_count = output.get("revision_count")
                         if isinstance(revision_count, int):
                             artifact_payload["revision_count"] = revision_count

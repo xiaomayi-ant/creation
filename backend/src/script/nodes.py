@@ -3,15 +3,17 @@
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from langchain_community.chat_models import ChatTongyi
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.types import Command
 
 from src.agent.prompts import SCRIPT_GENERATION_PROMPT
 from src.novel.move_extractor import extract_moves_from_novel
+from src.script.review_agent import run_review_subagent
 from src.script.state import ScriptAgentState
 from src.core.config import settings
 from src.core.logger import get_logger
@@ -648,14 +650,87 @@ def verify_script_node(state: ScriptAgentState) -> dict[str, Any]:
     }
 
 
-def route_after_verify(state: ScriptAgentState) -> str:
-    """Route to bounded revision or finalization after deterministic verification."""
-    result = state.get("verification_result") or {}
-    if result.get("passed"):
-        return "finalize"
-    if state.get("revision_count", 0) < 2:
-        return "revise"
-    return "finalize"
+def review_script_node(state: ScriptAgentState) -> Command[Literal["write_scenes", "finalize"]]:
+    """
+    Run semantic ReviewSubagent and route with Command.
+
+    The wrapper owns parent-state mapping and bounded rewrite policy. The subagent
+    only reviews a compact input and returns a structured review result.
+    """
+    logger.info("🧑‍⚖️ [Script] Review Script Node")
+
+    verification_result = state.get("verification_result") or {}
+    revision_count = state.get("revision_count", 0)
+
+    if not verification_result.get("passed"):
+        structural_issues = (
+            verification_result.get("critical_issues") or []
+        ) + (verification_result.get("issues") or [])
+        revision_feedback = (
+            verification_result.get("revision_feedback")
+            or state.get("revision_feedback")
+            or "请先修复结构化审核问题。"
+        )
+        quality_review_result = {
+            "passed": False,
+            "review_available": False,
+            "review_skipped": True,
+            "alignment_score": 0,
+            "fluency_score": 0,
+            "story_consistency_score": 0,
+            "aigc_executability_score": 0,
+            "overall_score": int(verification_result.get("score") or 0),
+            "issues": [
+                {
+                    "type": "structural",
+                    "severity": "major",
+                    "message": str(issue),
+                }
+                for issue in structural_issues[:8]
+            ],
+            "revision_feedback": revision_feedback,
+            "summary": "结构化规则未通过，跳过语义审核并进入有界重写。",
+        }
+        goto: Literal["write_scenes", "finalize"] = (
+            "write_scenes" if revision_count < 2 else "finalize"
+        )
+        return Command(
+            update={
+                "quality_review_result": quality_review_result,
+                "revision_feedback": revision_feedback,
+            },
+            goto=goto,
+        )
+
+    review_result = run_review_subagent(
+        {
+            "user_input": state.get("user_input", ""),
+            "script_plan": state.get("script_plan"),
+            "final_script": state.get("final_script") or "",
+            "aigc_spec": _extract_aigc_spec(state.get("final_script") or ""),
+            "retrieval_refs": _retrieval_ref_ids(state.get("retrieval_results")),
+            "structural_verification": verification_result,
+        }
+    )
+    review_passed = bool(review_result.get("passed"))
+    revision_feedback = ""
+    if not review_passed:
+        revision_feedback = (
+            str(review_result.get("revision_feedback") or "").strip()
+            or "请根据 ReviewSubagent 审核意见提升用户意图一致性、语言流畅度、剧情连贯性和 AIGC 可执行性。"
+        )
+
+    next_revision_count = revision_count + (0 if review_passed else 1)
+    goto = "finalize" if review_passed or next_revision_count >= 2 else "write_scenes"
+
+    return Command(
+        update={
+            "quality_review_result": review_result,
+            "revision_feedback": revision_feedback,
+            "revision_count": next_revision_count,
+        },
+        goto=goto,
+    )
 
 
 def finalize_node(state: ScriptAgentState) -> dict[str, Any]:
