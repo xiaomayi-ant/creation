@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="AI Short Drama Creation Space" width="100%">
+</p>
+
 <div align="center">
 
 # AI Short Drama Creation Space
