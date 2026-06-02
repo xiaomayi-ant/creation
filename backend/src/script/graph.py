@@ -8,10 +8,12 @@ from langgraph.graph import END, StateGraph
 from src.core.logger import get_logger
 from src.script.memory import get_script_thread_memory
 from src.script.nodes import (
+    external_enrichment_node,
     finalize_node,
     load_reference_node,
     plan_story_node,
     review_script_node,
+    should_enrich_external_context,
     verify_script_node,
     write_scenes_node,
 )
@@ -27,11 +29,12 @@ def create_script_graph(with_memory: bool = True):
 
     工作流程：
     1. load_reference: 加载参考小说 + 提取 Move（可选）
-    2. plan_story: 规划故事结构（可选）
-    3. write_scenes: 按计划生成剧本内容 + AIGC 分镜规格
-    4. verify_script: 确定性规则审核
-    5. review_script: ReviewSubagent 语义审核 + Command 动态路由
-    6. [条件] 不通过且未达上限则重写，否则 finalize
+    2. external_enrichment: 内部素材不足时调用外部 Web/热点工具补充语境
+    3. plan_story: 规划故事结构（可选）
+    4. write_scenes: 按计划生成剧本内容 + AIGC 分镜规格
+    5. verify_script: 确定性规则审核
+    6. review_script: ReviewSubagent 语义审核 + Command 动态路由
+    7. [条件] 不通过且未达上限则重写，否则 finalize
 
     Args:
         with_memory: 是否启用记忆功能（会话持久化）
@@ -47,6 +50,7 @@ def create_script_graph(with_memory: bool = True):
 
     # 添加节点
     workflow.add_node("load_reference", load_reference_node)
+    workflow.add_node("external_enrichment", external_enrichment_node)
     workflow.add_node("plan_story", plan_story_node)
     workflow.add_node("write_scenes", write_scenes_node)
     workflow.add_node("verify_script", verify_script_node)
@@ -57,7 +61,15 @@ def create_script_graph(with_memory: bool = True):
     workflow.set_entry_point("load_reference")
 
     # 添加边
-    workflow.add_edge("load_reference", "plan_story")
+    workflow.add_conditional_edges(
+        "load_reference",
+        should_enrich_external_context,
+        {
+            "external_enrichment": "external_enrichment",
+            "plan_story": "plan_story",
+        },
+    )
+    workflow.add_edge("external_enrichment", "plan_story")
     workflow.add_edge("plan_story", "write_scenes")
     workflow.add_edge("write_scenes", "verify_script")
     workflow.add_edge("verify_script", "review_script")
@@ -126,6 +138,9 @@ async def run_script_agent_stream(
         "reference_novel_title": reference_novel_title,
         "move_codebook": None,
         "reference_novel_data": None,
+        "retrieval_results": None,
+        "external_context": None,
+        "external_tool_trace": None,
         "story_ir": None,
         "script_plan": None,
         "plan_text": None,
@@ -157,6 +172,7 @@ async def run_script_agent_stream(
                 node_name = event.get("name", "")
                 if node_name in [
                     "load_reference",
+                    "external_enrichment",
                     "plan_story",
                     "write_scenes",
                     "verify_script",
@@ -173,6 +189,7 @@ async def run_script_agent_stream(
                 node_name = event.get("name", "")
                 if node_name in [
                     "load_reference",
+                    "external_enrichment",
                     "plan_story",
                     "write_scenes",
                     "verify_script",

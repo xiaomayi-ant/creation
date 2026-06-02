@@ -42,6 +42,12 @@ SCRIPT_GENERATION_PROMPT = """
 
 ---
 
+# 外部内容增强（来自 Web Search / 抖音热点工具；可能为空）
+
+{EXTERNAL_CONTEXT}
+
+---
+
 # 结构参考（IR，仅供参考，自主取舍）
 
 {MOVE_GUIDANCE_IR}

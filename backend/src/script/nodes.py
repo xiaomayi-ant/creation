@@ -16,6 +16,12 @@ from src.novel.move_extractor import extract_moves_from_novel
 from src.script.prompts import SCRIPT_GENERATION_PROMPT
 from src.script.review_agent import run_review_subagent
 from src.script.state import ScriptAgentState
+from src.tools.external_content_tools import (
+    DouyinTrendTool,
+    WebSearchTool,
+    aggregate_external_context,
+    build_external_content_function_tools,
+)
 
 logger = get_logger(__name__)
 
@@ -304,6 +310,75 @@ def load_reference_node(state: ScriptAgentState) -> dict[str, Any]:
         }
 
 
+def should_enrich_external_context(
+    state: ScriptAgentState,
+) -> Literal["external_enrichment", "plan_story"]:
+    """Route to external tools when internal RAG coverage is weak or trend intent is explicit."""
+    if not settings.enable_external_content_tools:
+        return "plan_story"
+
+    user_input = str(state.get("user_input") or "")
+    hot_keywords = ("热点", "热榜", "抖音", "爆款", "最近", "最新", "当下", "流行", "新闻")
+    if any(keyword in user_input for keyword in hot_keywords):
+        return "external_enrichment"
+
+    retrieval_results = state.get("retrieval_results")
+    retrieval_count = len(retrieval_results) if isinstance(retrieval_results, list) else 0
+    if retrieval_count < settings.external_enrichment_min_results:
+        return "external_enrichment"
+
+    return "plan_story"
+
+
+def external_enrichment_node(state: ScriptAgentState) -> dict[str, Any]:
+    """Call external content tools to supplement weak internal RAG context."""
+    logger.info("🌐 [Script] External Enrichment Node")
+
+    query = state.get("user_input", "")
+    try:
+        web_result = WebSearchTool(settings).run(query=query, max_results=5)
+        douyin_result = DouyinTrendTool(settings).run(keyword=query, limit=10)
+        external_context = aggregate_external_context(
+            query=query,
+            web_result=web_result,
+            douyin_result=douyin_result,
+        )
+        function_tools = build_external_content_function_tools()
+        external_tool_trace = {
+            "trigger": {
+                "reason": should_enrich_external_context(state),
+                "retrieval_count": len(state.get("retrieval_results") or []),
+            },
+            "function_call_tools": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                }
+                for tool in function_tools
+            ],
+            "web_search": web_result["trace"],
+            "douyin_trend": douyin_result["trace"],
+        }
+        return {
+            "external_context": external_context,
+            "external_tool_trace": external_tool_trace,
+        }
+    except Exception as exc:
+        logger.warning("外部内容增强工具调用失败: %s", exc)
+        return {
+            "external_context": {
+                "available": False,
+                "query": query,
+                "context_cards": [],
+                "creative_angles": [],
+                "error": str(exc),
+            },
+            "external_tool_trace": {
+                "error": str(exc),
+            },
+        }
+
+
 def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     规划短剧执行计划。
@@ -318,6 +393,7 @@ def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
     retrieval_results = state.get("retrieval_results")
+    external_context = state.get("external_context")
     thread_summary = str(state.get("thread_summary") or "").strip()
 
     ref_ids = _retrieval_ref_ids(retrieval_results)
@@ -408,6 +484,16 @@ def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str
             "thread_summary": thread_summary[:1500],
             "use_hint": "作为同一 thread_id 的历史上下文参考，优先延续已确认设定，同时服从本轮用户需求。",
         }
+    if isinstance(external_context, dict):
+        context_cards = external_context.get("context_cards") or []
+        creative_angles = external_context.get("creative_angles") or []
+        script_plan["external_context"] = {
+            "available": bool(external_context.get("available")),
+            "query": external_context.get("query") or user_input,
+            "context_cards": context_cards[:5] if isinstance(context_cards, list) else [],
+            "creative_angles": creative_angles[:5] if isinstance(creative_angles, list) else [],
+            "use_hint": "外部工具语境仅用于补充热点/现实背景，不得直接搬运来源文本。",
+        }
 
     return {
         "script_plan": script_plan,
@@ -428,6 +514,7 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
     script_plan = state.get("script_plan")
+    external_context = state.get("external_context")
     thread_summary = state.get("thread_summary") or "（无历史上下文，本轮按用户需求直接生成）"
     revision_feedback = state.get("revision_feedback") or "（无，本次为首次生成或上一轮已通过）"
 
@@ -479,6 +566,7 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
             USER_INPUT=user_input + chapters_hint,
             THREAD_MEMORY_SUMMARY=thread_summary,
             REFERENCE_MATERIALS=reference_text,
+            EXTERNAL_CONTEXT=_json_text(external_context or {}),
             MOVE_GUIDANCE_IR=move_guidance_ir_text,
             SCRIPT_PLAN=_json_text(script_plan or {}),
             REVISION_FEEDBACK=revision_feedback,

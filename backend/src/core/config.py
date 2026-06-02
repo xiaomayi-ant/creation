@@ -2,7 +2,6 @@
 
 import os
 from functools import lru_cache
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,7 +31,7 @@ class Settings(BaseSettings):
     dashscope_base_url: str = Field(
         default="", description="DashScope Base URL（如区域不同可自定义，默认 https://dashscope.aliyuncs.com）"
     )
-    
+
     # OpenAI 配置
     openai_api_key: str = Field(
         default="", description="OpenAI API Key"
@@ -40,7 +39,7 @@ class Settings(BaseSettings):
     openai_base_url: str = Field(
         default="", description="OpenAI Base URL（可选，用于代理或兼容 API）"
     )
-    
+
     # 模型配置（通用）
     model_name: str = Field(
         default="qwen-plus", description="模型名称（dashscope: qwen-plus / openai: gpt-4o-mini 等）"
@@ -110,6 +109,24 @@ class Settings(BaseSettings):
     )
     retrieval_rerank_gap: float = Field(
         default=5.0, description="Rerank 分数差距阈值：与最佳结果差距超过此值的结果被裁掉"
+    )
+
+    # External enrichment tools
+    enable_external_content_tools: bool = Field(
+        default=True,
+        description="是否启用外部内容增强工具（Web Search / Douyin Trends）",
+    )
+    external_enrichment_min_results: int = Field(
+        default=1,
+        description="内部 RAG 结果少于该数量时触发外部内容增强",
+    )
+    web_search_api_url: str = Field(
+        default="",
+        description="Web Search 供应商 API URL；为空时使用占位工具结果",
+    )
+    douyin_trend_api_url: str = Field(
+        default="",
+        description="抖音热榜供应商 API URL；为空时使用占位工具结果",
     )
 
     # AIGC 模型（通义万相）

@@ -221,6 +221,8 @@ async def chat_submit(request: ConfigSubmitRequest):
             "script_config": script_config,
             "target_duration_sec": target_duration_sec,
             "retrieval_references": [],
+            "external_context": None,
+            "external_tool_trace": None,
             "move_codebook": None,
             "move_guidance_ir": None,
             "script_plan": None,
@@ -279,6 +281,16 @@ async def chat_submit(request: ConfigSubmitRequest):
                                 "pacing": move_codebook.get("pacing"),
                                 "moves": move_codebook.get("moves"),
                             }
+
+                if event.get("type") == "node_end" and event.get("node") == "external_enrichment":
+                    output = event.get("output")
+                    if isinstance(output, dict):
+                        external_context = output.get("external_context")
+                        if isinstance(external_context, dict):
+                            artifact_payload["external_context"] = external_context
+                        external_tool_trace = output.get("external_tool_trace")
+                        if isinstance(external_tool_trace, dict):
+                            artifact_payload["external_tool_trace"] = external_tool_trace
 
                 if event.get("type") == "node_end" and event.get("node") == "plan_story":
                     output = event.get("output")

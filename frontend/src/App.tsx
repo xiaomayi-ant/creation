@@ -108,6 +108,7 @@ const NODE_DISPLAY_MAP: Record<string, string> = {
   proofread:         '剧本审核与润色',
   v2_qc:             '剧本审核与润色',
   load_reference:    '信息更新',
+  external_enrichment: '外部热点补充',
   plan_story:        '剧本规划',
   write_scenes:      '剧本生成',
   finalize:          '剧本生成',
@@ -119,6 +120,7 @@ const GROUP_TERMINAL_NODES: Record<string, Set<string>> = {
   '进行剧本生成':         new Set(['verify', 'v2_creator']),
   '剧本审核与润色':       new Set(['proofread', 'v2_qc']),
   '信息更新':             new Set(['load_reference']),
+  '外部热点补充':         new Set(['external_enrichment']),
   '剧本规划':             new Set(['plan_story']),
   '剧本生成':             new Set(['finalize']),
 };

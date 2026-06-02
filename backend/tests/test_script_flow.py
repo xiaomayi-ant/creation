@@ -3,8 +3,10 @@
 import src.script.nodes as script_nodes
 from src.script.graph import create_script_graph
 from src.script.nodes import (
+    external_enrichment_node,
     plan_story_node,
     review_script_node,
+    should_enrich_external_context,
     verify_script_node,
     write_scenes_node,
 )
@@ -29,6 +31,8 @@ def _base_state(**overrides):
         "previous_thread_memory": None,
         "reference_novel_title": None,
         "reference_novel_data": None,
+        "external_context": None,
+        "external_tool_trace": None,
         "retrieval_results": [
             {
                 "novel_id": "novel-a",
@@ -127,6 +131,49 @@ def test_plan_story_node_includes_thread_summary_memory():
     assert "同一 thread_id" in memory_context["use_hint"]
 
 
+def test_external_enrichment_routes_when_retrieval_is_empty():
+    route = should_enrich_external_context(_base_state(retrieval_results=[]))
+
+    assert route == "external_enrichment"
+
+
+def test_external_enrichment_node_returns_function_tool_trace():
+    result = external_enrichment_node(_base_state(retrieval_results=[]))
+
+    assert result["external_context"]["available"] is False
+    tool_names = {
+        item["name"]
+        for item in result["external_tool_trace"]["function_call_tools"]
+    }
+    assert "web_search_external_context" in tool_names
+    assert "douyin_trend_hotlist" in tool_names
+
+
+def test_plan_story_node_includes_external_context():
+    result = plan_story_node(
+        _base_state(
+            external_context={
+                "available": True,
+                "query": "抖音热门反转短剧",
+                "context_cards": [
+                    {
+                        "source_type": "douyin_trend",
+                        "title": "反转家庭短剧",
+                        "hot_score": 9123,
+                    }
+                ],
+                "creative_angles": ["用热门家庭误会作为开场钩子"],
+            },
+        ),
+        {},
+    )
+
+    external_context = result["script_plan"]["external_context"]
+    assert external_context["available"] is True
+    assert external_context["context_cards"][0]["title"] == "反转家庭短剧"
+    assert "不得直接搬运" in external_context["use_hint"]
+
+
 def test_write_scenes_node_injects_thread_summary_into_prompt(monkeypatch):
     class FakeLLM:
         def stream(self, _messages, config=None):
@@ -141,12 +188,18 @@ def test_write_scenes_node_injects_thread_summary_into_prompt(monkeypatch):
         _base_state(
             script_plan={"goal": "测试"},
             thread_summary="上一轮确认：保留雨夜书店和旧书自动翻页。",
+            external_context={
+                "available": True,
+                "context_cards": [{"title": "抖音热榜：雨夜悬疑"}],
+            },
         ),
         {},
     )
 
     assert "历史压缩上下文" in result["prompt_used"]
     assert "旧书自动翻页" in result["prompt_used"]
+    assert "外部内容增强" in result["prompt_used"]
+    assert "雨夜悬疑" in result["prompt_used"]
 
 
 def test_verify_script_node_accepts_valid_aigc_json():

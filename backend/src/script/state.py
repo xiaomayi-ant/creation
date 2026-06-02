@@ -1,8 +1,9 @@
 """剧本生成 Agent 状态定义"""
 
-from typing import TypedDict, Optional, Annotated
-from langgraph.graph.message import add_messages
+from typing import Annotated, Optional, TypedDict
+
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 
 class ScriptAgentState(TypedDict):
@@ -23,6 +24,8 @@ class ScriptAgentState(TypedDict):
     reference_novel_title: Optional[str]  # 参考小说的名称
     reference_novel_data: Optional[dict]  # 参考小说的完整内容
     retrieval_results: Optional[list[dict]]  # hybrid-search 检索结果
+    external_context: Optional[dict]  # 外部 Web/热点工具补充的创作语境
+    external_tool_trace: Optional[dict]  # 外部工具调用轨迹与可用性
 
     # ============ Move 和 IR ============
     move_codebook: Optional[dict]  # 从参考小说提取的 Move 结构
