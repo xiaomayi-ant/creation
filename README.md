@@ -1,285 +1,276 @@
-# Comic Drama — AI 短剧创作系统
+<div align="center">
 
-基于 LangGraph + FastAPI + React 的 AI 短剧内容创作平台，涵盖**剧本生成 → 分镜拆解 → AIGC 图片/视频生成 → 视频合成**完整工作流。
+# AI Short Drama Creation Space
+### LangGraph + FastAPI + React Agentic Workflow for Short-Drama Production
 
-## 系统架构
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agent%20Workflow-121212?style=for-the-badge)](https://github.com/langchain-ai/langgraph)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=111111)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vite.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 
+</div>
+
+<hr>
+
+<p align="center">
+  <a href="./backend/src/script">Script Agent</a> |
+  <a href="./backend/src/storyboard">Storyboard</a> |
+  <a href="./backend/src/retrieval">Retrieval</a> |
+  <a href="./backend/skills">Skills</a> |
+  <a href="./backend/.env.example">Backend Env</a> |
+  <a href="./frontend/.env.example">Frontend Env</a> |
+  <a href="./docker-compose.yml">Docker Compose</a>
+</p>
+
+> [!NOTE]
+> The current `main` branch is the cleaned portfolio-ready workflow. Legacy public APIs for copywriting and novel generation have been removed from the API surface; the active product path is short-drama generation plus storyboard/AIGC production.
+
+## Introduction
+
+AI Short Drama Creation Space is a full-stack creative production system for short-drama scripts and AIGC storyboard assets.
+
+The platform connects a **LangGraph Plan-and-Execute backend** with a **React creative workspace**. Users submit a creative requirement, confirm generation options, stream the Agent execution result, create storyboard episodes, manually revise shots, and trigger asynchronous AIGC/video tasks.
+
+## Highlights
+
+- **Agentic workflow**: reference loading, external enrichment, story planning, script execution, semantic review, bounded rewriting, and finalization.
+- **Hybrid RAG**: Qdrant vector retrieval + MongoDB/PageIndex metadata + OSS source text for traceable references.
+- **ReviewSubagent**: LangGraph subgraph for semantic review, connected to the parent graph through `Command`-driven routing.
+- **Memory + Compact**: durable thread memory for user intent, selections, move codebook, review result, and deterministic thread summary.
+- **Tool layer**: WebSearchTool and DouyinTrendTool placeholders for external trend enrichment when internal RAG is insufficient.
+- **Platform Skills**: Douyin short-drama style and Xiaohongshu story-style skill packages for channel-specific expression.
+- **Human-in-the-loop**: storyboard manual edits are persisted before AIGC generation, keeping human changes in the backend production chain.
+- **Async production**: Redis/Celery handles storyboard generation, AIGC image/video generation, and video merge tasks.
+
+## Architecture
+
+```text
+Browser
+  -> Frontend (React + Vite + Tailwind)
+      -> /api/v1/chat/submit (SSE)
+          -> FastAPI Backend
+              -> LangGraph Script Agent
+                  -> load_reference
+                      -> Qdrant + PageIndex/MongoDB + OSS
+                  -> external_enrichment
+                      -> WebSearchTool / DouyinTrendTool
+                  -> plan_story
+                  -> write_scenes
+                  -> ReviewSubagent
+                      -> semantic review + rewrite decision
+                  -> finalize
+              -> Thread Memory + Compact Summary
+      -> Storyboard APIs
+          -> Episode / Shot persistence
+          -> Manual edits (HITL)
+          -> Celery tasks
+              -> storyboard generation
+              -> AIGC image/video generation
+              -> FFmpeg video merge
 ```
-┌─────────────┐    ┌────────────────────┐    ┌──────────┐
-│  React 前端  │───▶│  FastAPI 后端 API   │───▶│  MongoDB  │
-│  (Vite)     │    │                    │    │  Qdrant   │
-└─────────────┘    │  ┌──────────────┐  │    └──────────┘
-                   │  │  LangGraph   │  │
-                   │  │  Agent 工作流 │  │    ┌──────────┐
-                   │  └──────────────┘  │───▶│  Redis    │
-                   │                    │    └────┬─────┘
-                   └────────────────────┘         │
-                                            ┌─────▼─────┐
-                                            │  Celery    │
-                                            │  Worker    │
-                                            └───────────┘
+
+## Core Modules
+
+| Module | Path | Description |
+| --- | --- | --- |
+| Script Agent | `backend/src/script/` | LangGraph Plan-and-Execute short-drama generation workflow |
+| Review Subagent | `backend/src/script/review_agent.py` | Semantic review subgraph for alignment, fluency, continuity, and AIGC feasibility |
+| Memory | `backend/src/script/memory.py` | Thread-level memory and deterministic compact summary persistence |
+| Retrieval | `backend/src/retrieval/` | Qdrant + MongoDB/PageIndex + OSS hybrid reference retrieval |
+| Tools | `backend/src/tools/` | External content enrichment tools and function-call compatible wrappers |
+| Skills | `backend/skills/` | Platform style skill packages for Douyin and Xiaohongshu |
+| Storyboard | `backend/src/storyboard/` | Episode conversion, storyboard persistence, AIGC tasks, and video merge |
+| Frontend | `frontend/` | React workspace for generation, storyboard editing, task polling, and preview |
+
+## Product Flow
+
+```text
+User requirement
+  -> Config confirmation
+  -> SSE script generation
+  -> Structured script data
+  -> Episode + storyboard creation
+  -> Manual storyboard review/edit
+  -> AIGC image/video task
+  -> Video merge / preview
 ```
 
-## 核心模块
+## Quick Start
 
-| 模块 | 路径 | 说明 |
-|------|------|------|
-| **剧本生成 (Script)** | `backend/src/script/` | LangGraph 工作流，从用户配置生成结构化剧本 |
-| **小说生成 (Novel)** | `backend/src/novel/` | 多章节故事生成，支持 Move Codebook 叙述结构 |
-| **文案 Agent** | `backend/src/agent/` | 口播文案仿写 & 分析 |
-| **分镜板 (Storyboard)** | `backend/src/storyboard/` | 分镜拆解、AIGC 图片/视频生成、视频合成 |
-| **语义检索 (Retrieval)** | `backend/src/retrieval/` | Qdrant + MongoDB 混合检索 |
-| **前端** | `frontend/` | React 19 + Tailwind CSS 4 交互界面 |
+### 1. Prerequisites
 
-## 快速开始
+| Component | Version / Requirement |
+| --- | --- |
+| Python | 3.12+ |
+| uv | Recommended Python package manager |
+| Node.js | 18+ |
+| npm | Comes with Node.js |
+| Redis | Required for Celery async tasks |
+| MongoDB | Optional, required for PageIndex/RAG metadata |
+| Qdrant | Optional, required for vector retrieval |
+| OSS | Optional, required for source text and generated media storage |
 
-### 前置条件
-
-- Python 3.12+、[uv](https://github.com/astral-sh/uv) 包管理器
-- Node.js 18+
-- Redis 6+
-- MongoDB（可选，语义检索用）
-- Qdrant（可选，向量检索用）
-
-### 1. 后端
+### 2. Backend
 
 ```bash
 cd backend
-
-# 安装依赖
 uv sync
-
-# 复制并编辑环境变量
 cp .env.example .env
-# 编辑 .env 填入必要的 API Key
 
-# 激活虚拟环境
-source .venv/bin/activate
-
-# 启动 API 服务
-python main.py --serve
-# 服务运行在 http://localhost:8000
+# Edit backend/.env and configure at least one LLM provider.
+uv run python main.py --serve
 ```
 
-### 2. 前端
+Backend defaults:
+
+- API: `http://localhost:8000`
+- Health: `http://localhost:8000/api/v1/health`
+- OpenAPI: `http://localhost:8000/docs`
+
+### 3. Frontend
 
 ```bash
 cd frontend
-
 npm install
-
-# 开发模式
 npm run dev
-# 服务运行在 http://localhost:3000
 ```
 
-### 3. Celery Worker（分镜/AIGC/视频合成任务必需）
+Frontend defaults:
+
+- App: `http://localhost:3000`
+- API base: `VITE_API_BASE=/api`
+
+### 4. Celery Worker
+
+Redis/Celery is required for storyboard generation, AIGC media generation, and video merge tasks.
 
 ```bash
-# 确保 Redis 已启动
+# terminal 1
 redis-server
 
-# 在 backend 目录下启动 Worker
+# terminal 2
 cd backend
-source .venv/bin/activate
-
-celery -A src.core.celery_app worker --loglevel=info
+uv run celery -A src.core.celery_app worker --loglevel=info
 ```
 
-生产环境推荐：
-
-```bash
-celery -A src.core.celery_app worker \
-  --loglevel=info \
-  --concurrency=4 \
-  --pool=prefork \
-  --prefetch-multiplier=1
-```
-
-可选 — 启动 Flower 任务监控面板：
-
-```bash
-celery -A src.core.celery_app flower --port=5555
-# 访问 http://localhost:5555
-```
-
-## 环境变量
-
-在 `backend/.env` 中配置（参考 `.env.example`）：
+For local synchronous testing, set:
 
 ```env
-# LLM 提供商：dashscope | openai
-LLM_PROVIDER=dashscope
-DASHSCOPE_API_KEY=your_key
-MODEL_NAME=qwen-plus
-
-# API 服务
-API_HOST=0.0.0.0
-API_PORT=8000
-
-# Redis / Celery
-REDIS_URL=redis://localhost:6379/0
-CELERY_TASK_ALWAYS_EAGER=false   # 设为 true 可同步执行（测试用）
-
-# 数据库（语义检索）
-MONGODB_URI=mongodb://admin:password@localhost:27017
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-
-# AIGC（通义万相）
-AIGC_IMAGE_MODEL=wanx2.1-t2i-turbo
-AIGC_VIDEO_MODEL=wan2.1-i2v-plus
-
-# 日志
-LOG_LEVEL=INFO
-LOG_FILE_PATH=logs/app.log
+CELERY_TASK_ALWAYS_EAGER=true
 ```
 
-## API 接口
+## Environment
 
-启动后访问 Swagger 文档：http://localhost:8000/docs
+### Minimal Backend Settings
 
-### 主要端点
+| Scope | Keys |
+| --- | --- |
+| LLM | `LLM_PROVIDER`, `DASHSCOPE_API_KEY` or `OPENAI_API_KEY`, `MODEL_NAME` |
+| API | `API_HOST`, `API_PORT` |
+| Runtime | `LOG_LEVEL`, `MAX_ITERATIONS`, `ENABLE_MOVE_PLANNER` |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/v1/health` | 健康检查 |
-| `POST` | `/api/v1/chat/submit` | 提交剧本生成配置（SSE 流式） |
-| `POST` | `/api/v1/novel/generate` | 同步生成多章节小说 |
-| `POST` | `/api/v1/novel/generate/stream` | 流式生成多章节小说 |
-| `POST` | `/api/v1/storyboard/episodes` | 创建剧集 |
-| `POST` | `/api/v1/storyboard/episodes/from-script` | 从剧本数据创建剧集 |
-| `POST` | `/api/v1/storyboard/episodes/storyboards` | 触发分镜生成（异步） |
-| `POST` | `/api/v1/storyboard/episodes/{id}/generate-aigc` | 触发 AIGC 生成（异步） |
-| `POST` | `/api/v1/storyboard/videos/merge` | 触发视频合成（异步） |
-| `GET` | `/api/v1/storyboard/tasks/{task_id}` | 查询异步任务状态 |
+### Optional Production Capabilities
 
-### Celery 异步任务
+| Capability | Keys |
+| --- | --- |
+| Hybrid RAG | `ENABLE_RETRIEVAL`, `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `MONGODB_URI`, `MONGODB_DATABASE` |
+| OSS Storage | `OSS_ENABLED`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_BUCKET_NAME`, `OSS_ENDPOINT` |
+| External Tools | `ENABLE_EXTERNAL_CONTENT_TOOLS`, `WEB_SEARCH_API_URL`, `DOUYIN_TREND_API_URL` |
+| AIGC | `AIGC_IMAGE_MODEL`, `AIGC_VIDEO_MODEL`, `DASHSCOPE_API_KEY` |
+| Celery | `REDIS_URL`, `CELERY_TASK_ALWAYS_EAGER` |
 
-分镜板模块的耗时操作通过 Celery 异步执行：
+## API Surface
 
-| 任务 | 模块 | 说明 |
-|------|------|------|
-| `generate_storyboard_task` | `storyboard_tasks` | 根据剧集内容生成分镜 |
-| `generate_aigc_task` | `aigc_tasks` | 文生图 + 图生视频（通义万相） |
-| `merge_episode_videos_task` | `video_tasks` | 多片段视频合成（FFmpeg） |
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | Backend health check |
+| `POST` | `/api/v1/chat` | Return generation configuration form |
+| `GET` | `/api/v1/chat/memory/{thread_id}` | Read persisted script thread memory |
+| `POST` | `/api/v1/chat/submit` | Run script Agent and stream SSE events |
+| `POST` | `/api/v1/storyboard/episodes` | Create an episode manually |
+| `POST` | `/api/v1/storyboard/episodes/from-script` | Create episode and storyboard from script data |
+| `POST` | `/api/v1/storyboard/episodes/storyboards` | Enqueue storyboard generation task |
+| `PUT` | `/api/v1/storyboard/episodes/{episode_id}/manual-edits` | Persist human storyboard edits |
+| `POST` | `/api/v1/storyboard/episodes/{episode_id}/generate-aigc` | Enqueue AIGC image/video generation task |
+| `GET` | `/api/v1/storyboard/tasks/{task_id}` | Poll async task status |
+| `POST` | `/api/v1/storyboard/videos/merge` | Enqueue video merge task |
+| `POST` | `/api/v1/storyboard/videos/merge/precheck` | Validate merge inputs synchronously |
 
-调用流程：API 创建任务 → 返回 `task_id` → Celery Worker 后台执行 → 通过 `GET /tasks/{task_id}` 轮询状态。
+## Project Structure
 
-## 项目结构
-
-```
-comic-drama-two/
+```text
+.
 ├── backend/
-│   ├── main.py                     # 入口（--serve 启动 API）
-│   ├── pyproject.toml              # Python 依赖
-│   ├── Dockerfile
-│   ├── .env.example
+│   ├── main.py                         # Backend entry point
+│   ├── pyproject.toml                  # uv project metadata
+│   ├── skills/                         # Platform style skill packages
 │   └── src/
-│       ├── api/
-│       │   ├── server.py           # FastAPI 应用
-│       │   ├── routes.py           # 通用路由
-│       │   ├── storyboard_routes.py # 分镜板路由
-│       │   └── schemas.py          # Pydantic 数据模型
-│       ├── agent/                  # 文案 Agent（LangGraph）
-│       ├── script/                 # 剧本生成（LangGraph）
-│       ├── novel/                  # 小说生成（LangGraph）
-│       ├── storyboard/
-│       │   ├── tasks/              # Celery 任务定义
-│       │   ├── services/           # 业务逻辑
-│       │   ├── utils/              # FFmpeg 等工具
-│       │   └── bridge.py           # 剧本 → 剧集转换
-│       ├── retrieval/              # 语义检索（Qdrant + MongoDB）
-│       └── core/
-│           ├── config.py           # Pydantic Settings 配置
-│           ├── celery_app.py       # Celery 实例
-│           ├── database.py         # 数据库连接
-│           └── logger.py           # 日志配置
+│       ├── api/                        # FastAPI routes and schemas
+│       ├── core/                       # Config, database, Celery, logging
+│       ├── retrieval/                  # Qdrant/PageIndex/OSS retrieval
+│       ├── script/                     # LangGraph script Agent
+│       ├── storyboard/                 # Storyboard, AIGC, video tasks
+│       └── tools/                      # External enrichment tools
 ├── frontend/
-│   ├── src/
-│   │   ├── App.tsx                 # 主应用
-│   │   └── components/             # React 组件
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── Dockerfile
-├── docker-compose.yml              # Docker 编排
-├── Caddyfile                       # Caddy 反向代理
-├── DEPLOY.md                       # 部署指南
-└── architecture_v0.1.md            # 架构设计文档
+│   ├── src/App.tsx                     # Main creative workspace
+│   ├── src/components/                 # Script and UI components
+│   ├── src/services/api.ts             # Backend API client
+│   └── package.json
+├── .github/workflows/                  # Manual deployment workflows
+├── docker-compose.yml
+├── Caddyfile
+├── DEPLOY.md
+└── README.md
 ```
 
-## Docker 部署
+## Development
+
+### Backend Checks
 
 ```bash
-# 构建并启动所有服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f backend
+cd backend
+uv run --extra dev pytest
+uv run --extra dev ruff check .
 ```
 
-当前 `docker-compose.yml` 包含 backend、frontend、caddy 三个服务。如需在 Docker 中运行 Celery，需添加 Redis 和 Worker 服务：
-
-```yaml
-# 在 docker-compose.yml 的 services 下添加：
-redis:
-  image: redis:7-alpine
-  container_name: writer2-redis
-  ports:
-    - "6379:6379"
-  restart: unless-stopped
-  networks:
-    - writer2-network
-
-celery-worker:
-  build:
-    context: ./backend
-    dockerfile: Dockerfile
-  container_name: writer2-celery
-  command: celery -A src.core.celery_app worker --loglevel=info --concurrency=4
-  env_file:
-    - ./backend/.env
-  environment:
-    - REDIS_URL=redis://redis:6379/0
-  depends_on:
-    - redis
-  restart: unless-stopped
-  networks:
-    - writer2-network
-```
-
-## 技术栈
-
-**后端**：Python 3.12 / FastAPI / LangGraph / Celery / SQLAlchemy / Pydantic
-
-**前端**：React 19 / TypeScript / Vite / Tailwind CSS 4
-
-**基础设施**：Redis / MongoDB / Qdrant / FFmpeg / Docker / Caddy
-
-**LLM**：通义千问（DashScope）/ OpenAI 兼容接口
-
-**AIGC**：通义万相（文生图 wanx2.1 / 图生视频 wan2.1）
-
-## 开发命令速查
+### Frontend Checks
 
 ```bash
-# 后端
-cd backend && source .venv/bin/activate
-python main.py --serve              # 启动 API
-python main.py --test               # 运行文案 Agent 测试
-celery -A src.core.celery_app worker --loglevel=info  # Celery Worker
-
-# 前端
 cd frontend
-npm run dev                         # 开发服务器
-npm run build                       # 构建生产版本
-npm run lint                        # TypeScript 检查
-
-# Docker
-docker-compose up -d                # 启动全部服务
-docker-compose down                 # 停止全部服务
+npm run lint
+npm run build
 ```
 
----
+### Docker Compose
 
-最后更新：2026-03-01
+```bash
+docker compose up -d
+docker compose logs -f backend
+```
+
+The bundled compose file starts backend, frontend, and Caddy. External services such as Redis, MongoDB, Qdrant, and OSS credentials should be provided separately according to the enabled features.
+
+## Deployment
+
+GitHub Actions deployment workflows are intentionally manual:
+
+- `.github/workflows/deploy.yml`
+- `.github/workflows/rawdep.yml`
+
+They use `workflow_dispatch` only, so pushing to `main` will not automatically deploy to ECS.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `DASHSCOPE_API_KEY` or `OPENAI_API_KEY` missing | Configure `backend/.env` and restart the backend |
+| SSE generation starts but retrieval is empty | Check `ENABLE_RETRIEVAL`, Qdrant, MongoDB, and OSS configuration |
+| AIGC tasks stay pending | Start Redis and the Celery worker |
+| Manual storyboard edits do not affect AIGC | Ensure edits are saved through `/manual-edits` before triggering AIGC |
+| Deploy workflow fails with `missing server host` | Configure GitHub deployment secrets before manual run |
+
+## License
+
+This repository is currently maintained as a portfolio and learning project. Add a formal license before public reuse or redistribution.
