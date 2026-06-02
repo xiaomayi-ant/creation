@@ -1,8 +1,6 @@
 name: Deploy to Alibaba Cloud ECS (Pull Image) of comic-drama
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 env:
