@@ -10,10 +10,10 @@ from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
-from src.agent.prompts import SCRIPT_GENERATION_PROMPT
 from src.core.config import settings
 from src.core.logger import get_logger
 from src.novel.move_extractor import extract_moves_from_novel
+from src.script.prompts import SCRIPT_GENERATION_PROMPT
 from src.script.review_agent import run_review_subagent
 from src.script.state import ScriptAgentState
 

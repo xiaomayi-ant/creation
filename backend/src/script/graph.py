@@ -5,7 +5,6 @@ from typing import AsyncGenerator
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from src.agent.script_data import build_script_data
 from src.core.logger import get_logger
 from src.script.memory import get_script_thread_memory
 from src.script.nodes import (
@@ -16,6 +15,7 @@ from src.script.nodes import (
     verify_script_node,
     write_scenes_node,
 )
+from src.script.script_data import build_script_data
 from src.script.state import ScriptAgentState
 
 logger = get_logger(__name__)

@@ -1,21 +1,19 @@
 """小说生成 Agent 的节点函数"""
 
 import json
-import logging
 from typing import Any, Optional
-from datetime import datetime
 
-from src.novel.state import NovelAgentState
-from src.novel.loader import load_novel_from_qidian, get_novel_info
-from src.novel.move_extractor import extract_moves_from_novel, validate_move_codebook
+from src.core.logger import get_logger
+from src.novel.loader import load_novel_from_qidian
+from src.novel.move_extractor import extract_moves_from_novel
 from src.novel.prompts import (
-    STORY_PLAN_PROMPT,
     CHAPTER_WRITING_PROMPT,
     FLUENCY_CHECK_PROMPT,
+    STORY_PLAN_PROMPT,
     format_move_codebook_for_prompt,
     format_reference_moves_for_prompt,
 )
-from src.core.logger import get_logger
+from src.novel.state import NovelAgentState
 
 logger = get_logger(__name__)
 
@@ -177,7 +175,7 @@ async def plan_story_node(state: NovelAgentState) -> dict:
     chapters = story_ir.get('chapters', [])
     logger.info("故事规划完成: %d 章", len(chapters))
     for ch in chapters:
-        logger.debug("  第%d章: %s (核心: %s, 参考: %s)", 
+        logger.debug("  第%d章: %s (核心: %s, 参考: %s)",
             ch.get('chapter_id'), ch.get('title'), ch.get('core_idea'), ch.get('reference_moves'))
 
     story_ir_id = _save_story_ir(
@@ -372,7 +370,7 @@ def generate_default_chapter(title: str, core_idea: str, target_words: int) -> s
 
     # 简单地重复内容以达到目标字数
     while len(template) < target_words * 0.8:
-        template += f"\n\n（故事内容继续展开...）"
+        template += "\n\n（故事内容继续展开...）"
 
     return template[:target_words + 100]  # 略微超过目标
 
@@ -563,7 +561,7 @@ async def call_llm_safe(prompt: str, parse_json: bool = False) -> Optional[Any]:
         LLM 的响应，或 None（如果失败）
     """
     try:
-        from src.agent.nodes import get_llm
+        from src.script.nodes import get_llm
 
         llm = get_llm()
         response = llm.invoke(prompt)

@@ -1,2 +1,1 @@
-# Copywriting Assistant Agent
-
+# Comic drama script agent backend

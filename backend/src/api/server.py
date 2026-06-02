@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router
@@ -19,15 +19,15 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    logger.info("文案写作助手 API 服务启动")
+    logger.info("短剧脚本 Agent API 服务启动")
     logger.info(f"模型: {settings.model_name}")
     yield
-    logger.info("文案写作助手 API 服务关闭")
+    logger.info("短剧脚本 Agent API 服务关闭")
 
 
 app = FastAPI(
-    title="文案写作助手 API",
-    description="基于 LangGraph 的口播文案写作助手 Agent",
+    title="短剧脚本 Agent API",
+    description="基于 LangGraph 的短剧脚本生成、分镜审核与 AIGC 工作流 API",
     version="0.1.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -65,9 +65,8 @@ async def root():
     if index_file.exists():
         return RedirectResponse(url="/fronter/", status_code=302)
     return {
-        "name": "文案写作助手 API",
+        "name": "短剧脚本 Agent API",
         "version": "0.1.0",
         "docs": "/docs",
         "hint": "前端目录缺失：请先将前端 build 产物复制到项目根目录的 fronter/（需要包含 index.html 与 assets/）",
     }
-
