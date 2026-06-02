@@ -1,22 +1,21 @@
 """剧本生成 Agent 节点定义"""
 
 import json
-import logging
 import re
 from typing import Any, Literal, Optional
 
 from langchain_community.chat_models import ChatTongyi
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.types import Command
 
 from src.agent.prompts import SCRIPT_GENERATION_PROMPT
+from src.core.config import settings
+from src.core.logger import get_logger
 from src.novel.move_extractor import extract_moves_from_novel
 from src.script.review_agent import run_review_subagent
 from src.script.state import ScriptAgentState
-from src.core.config import settings
-from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -180,14 +179,14 @@ def get_llm(temperature: Optional[float] = None) -> BaseChatModel:
 
     if settings.llm_provider.lower() == "openai":
         from langchain_openai import ChatOpenAI
-        
+
         kwargs: dict[str, Any] = {
             "model": model,
             "temperature": temp,
         }
         if settings.openai_base_url:
             kwargs["base_url"] = settings.openai_base_url
-        
+
         logger.info(f"使用 OpenAI LLM: model={model}")
         return ChatOpenAI(**kwargs)
     else:
@@ -319,6 +318,7 @@ def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
     retrieval_results = state.get("retrieval_results")
+    thread_summary = str(state.get("thread_summary") or "").strip()
 
     ref_ids = _retrieval_ref_ids(retrieval_results)
     references: list[dict[str, Any]] = []
@@ -403,6 +403,11 @@ def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str
             "reference_trace 必须总结素材使用与未使用原因",
         ],
     }
+    if thread_summary:
+        script_plan["memory_context"] = {
+            "thread_summary": thread_summary[:1500],
+            "use_hint": "作为同一 thread_id 的历史上下文参考，优先延续已确认设定，同时服从本轮用户需求。",
+        }
 
     return {
         "script_plan": script_plan,
@@ -423,6 +428,7 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
     script_plan = state.get("script_plan")
+    thread_summary = state.get("thread_summary") or "（无历史上下文，本轮按用户需求直接生成）"
     revision_feedback = state.get("revision_feedback") or "（无，本次为首次生成或上一轮已通过）"
 
     try:
@@ -471,6 +477,7 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
             MOOD=mood,
             DENSITY=density,
             USER_INPUT=user_input + chapters_hint,
+            THREAD_MEMORY_SUMMARY=thread_summary,
             REFERENCE_MATERIALS=reference_text,
             MOVE_GUIDANCE_IR=move_guidance_ir_text,
             SCRIPT_PLAN=_json_text(script_plan or {}),

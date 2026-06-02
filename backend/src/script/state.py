@@ -16,6 +16,8 @@ class ScriptAgentState(TypedDict):
 
     # ============ 视频配置 ============
     script_config: Optional[dict]  # 视频配置（ratio, style, mood, density 等）
+    thread_summary: Optional[str]  # 同 thread_id 的压缩上下文摘要
+    previous_thread_memory: Optional[dict]  # 上一轮结构化 Thread Memory
 
     # ============ 参考数据 ============
     reference_novel_title: Optional[str]  # 参考小说的名称

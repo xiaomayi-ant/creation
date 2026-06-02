@@ -30,6 +30,12 @@ SCRIPT_GENERATION_PROMPT = """
 
 ---
 
+# 历史压缩上下文（同 thread_id 的上一轮记忆；没有则为空）
+
+{THREAD_MEMORY_SUMMARY}
+
+---
+
 # 参考素材（来自检索）
 
 {REFERENCE_MATERIALS}

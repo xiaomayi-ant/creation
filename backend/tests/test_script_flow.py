@@ -2,7 +2,12 @@
 
 import src.script.nodes as script_nodes
 from src.script.graph import create_script_graph
-from src.script.nodes import plan_story_node, review_script_node, verify_script_node
+from src.script.nodes import (
+    plan_story_node,
+    review_script_node,
+    verify_script_node,
+    write_scenes_node,
+)
 from src.script.review_agent import normalize_review_result
 
 
@@ -20,6 +25,8 @@ def _base_state(**overrides):
             "duration": "30秒",
             "density": "balanced",
         },
+        "thread_summary": None,
+        "previous_thread_memory": None,
         "reference_novel_title": None,
         "reference_novel_data": None,
         "retrieval_results": [
@@ -107,6 +114,39 @@ def test_plan_story_node_builds_script_plan_from_references():
     assert plan["references"][0]["ref_id"] == "novel-a#node-1"
     assert plan["scene_plan"]
     assert plan["scene_plan"][0]["source_refs"] == ["novel-a#node-1"]
+
+
+def test_plan_story_node_includes_thread_summary_memory():
+    result = plan_story_node(
+        _base_state(thread_summary="上一轮确认：主角是女高中生，书店会在午夜出现。"),
+        {},
+    )
+
+    memory_context = result["script_plan"]["memory_context"]
+    assert "女高中生" in memory_context["thread_summary"]
+    assert "同一 thread_id" in memory_context["use_hint"]
+
+
+def test_write_scenes_node_injects_thread_summary_into_prompt(monkeypatch):
+    class FakeLLM:
+        def stream(self, _messages, config=None):
+            class Chunk:
+                content = "## 剧本概览\n测试"
+
+            yield Chunk()
+
+    monkeypatch.setattr(script_nodes, "get_llm", lambda temperature=None: FakeLLM())
+
+    result = write_scenes_node(
+        _base_state(
+            script_plan={"goal": "测试"},
+            thread_summary="上一轮确认：保留雨夜书店和旧书自动翻页。",
+        ),
+        {},
+    )
+
+    assert "历史压缩上下文" in result["prompt_used"]
+    assert "旧书自动翻页" in result["prompt_used"]
 
 
 def test_verify_script_node_accepts_valid_aigc_json():

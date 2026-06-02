@@ -1,23 +1,22 @@
 """剧本生成 Agent 工作流定义"""
 
-import logging
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from src.script.state import ScriptAgentState
+from src.agent.script_data import build_script_data
+from src.core.logger import get_logger
+from src.script.memory import get_script_thread_memory
 from src.script.nodes import (
+    finalize_node,
     load_reference_node,
     plan_story_node,
-    write_scenes_node,
-    verify_script_node,
     review_script_node,
-    finalize_node,
+    verify_script_node,
+    write_scenes_node,
 )
-from src.agent.script_data import build_script_data
-from src.core.config import settings
-from src.core.logger import get_logger
+from src.script.state import ScriptAgentState
 
 logger = get_logger(__name__)
 
@@ -105,6 +104,16 @@ async def run_script_agent_stream(
     # 创建 Agent
     graph = create_script_graph(with_memory=True)
 
+    previous_thread_memory = None
+    thread_summary = ""
+    try:
+        previous_thread_memory = get_script_thread_memory(thread_id)
+        if previous_thread_memory:
+            thread_summary = str(previous_thread_memory.get("thread_summary") or "")
+            logger.info("已加载 Thread Memory: thread_id=%s", thread_id)
+    except Exception as memory_err:
+        logger.warning("读取 Thread Memory 失败: %s", memory_err)
+
     # 初始状态
     initial_state: ScriptAgentState = {
         "user_input": user_input,
@@ -112,6 +121,8 @@ async def run_script_agent_stream(
         "target_duration_sec": target_duration_sec,
         "target_chapters": target_chapters,
         "script_config": script_config,
+        "thread_summary": thread_summary,
+        "previous_thread_memory": previous_thread_memory,
         "reference_novel_title": reference_novel_title,
         "move_codebook": None,
         "reference_novel_data": None,
