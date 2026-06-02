@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "XiaohongshuStorySample",
+  "type": "object",
+  "required": ["platform", "title", "emotional_theme", "scene_texture", "narration_stance", "source_url"],
+  "properties": {
+    "platform": {
+      "const": "xiaohongshu"
+    },
+    "title": {
+      "type": "string"
+    },
+    "emotional_theme": {
+      "type": "string",
+      "description": "Core emotional value, summarized without copying source wording."
+    },
+    "scene_texture": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "narration_stance": {
+      "type": "string",
+      "description": "First-person sharing, close third-person, reflective voiceover, etc."
+    },
+    "relationship_tension": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "risk_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DouyinShortDramaSample",
+  "type": "object",
+  "required": ["platform", "title", "hook", "conflict_type", "reversal_type", "pacing_notes", "source_url"],
+  "properties": {
+    "platform": {
+      "const": "douyin"
+    },
+    "title": {
+      "type": "string"
+    },
+    "hook": {
+      "type": "string",
+      "description": "Opening pressure or contradiction, summarized without copying source wording."
+    },
+    "conflict_type": {
+      "type": "string"
+    },
+    "reversal_type": {
+      "type": "string"
+    },
+    "pacing_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "risk_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
