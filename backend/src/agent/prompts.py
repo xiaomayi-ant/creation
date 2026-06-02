@@ -42,6 +42,18 @@ SCRIPT_GENERATION_PROMPT = """
 
 ---
 
+# 执行计划（Planner 输出，必须优先遵循）
+
+{SCRIPT_PLAN}
+
+---
+
+# 修订反馈（若为空则表示首次生成）
+
+{REVISION_FEEDBACK}
+
+---
+
 # 创作要求
 
 1. 根据视频比例和风格，设计合适的画面构图和运镜方式。
@@ -174,4 +186,5 @@ SCRIPT_GENERATION_PROMPT = """
    - source_refs 非空时，source_reason 必填，no_source_reason 置空字符串。
    - source_refs 为空时，no_source_reason 必填，source_reason 置空字符串。
 13. reference_trace 必填，用于总结哪些参考被使用/未使用及原因。
+14. 若存在修订反馈，必须优先修复反馈中的结构、引用、时长和 JSON 问题。
 """

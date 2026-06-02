@@ -270,6 +270,9 @@ async def chat_submit(request: ConfigSubmitRequest):
             "retrieval_references": [],
             "move_codebook": None,
             "move_guidance_ir": None,
+            "script_plan": None,
+            "verification_result": None,
+            "revision_count": 0,
             "llm_prompt_used": None,
             "final_result": None,
         }
@@ -323,6 +326,13 @@ async def chat_submit(request: ConfigSubmitRequest):
                                 "moves": move_codebook.get("moves"),
                             }
 
+                if event.get("type") == "node_end" and event.get("node") == "plan_story":
+                    output = event.get("output")
+                    if isinstance(output, dict):
+                        script_plan = output.get("script_plan")
+                        if isinstance(script_plan, dict):
+                            artifact_payload["script_plan"] = script_plan
+
                 if event.get("type") == "node_end" and event.get("node") == "write_scenes":
                     output = event.get("output")
                     if isinstance(output, dict):
@@ -338,6 +348,16 @@ async def chat_submit(request: ConfigSubmitRequest):
                                 if k not in {"prompt_used", "move_guidance_ir"}
                             },
                         }
+
+                if event.get("type") == "node_end" and event.get("node") == "verify_script":
+                    output = event.get("output")
+                    if isinstance(output, dict):
+                        verification_result = output.get("verification_result")
+                        if isinstance(verification_result, dict):
+                            artifact_payload["verification_result"] = verification_result
+                        revision_count = output.get("revision_count")
+                        if isinstance(revision_count, int):
+                            artifact_payload["revision_count"] = revision_count
 
                 if event.get("type") == "done":
                     artifact_payload["final_result"] = {

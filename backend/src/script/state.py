@@ -25,13 +25,17 @@ class ScriptAgentState(TypedDict):
     # ============ Move 和 IR ============
     move_codebook: Optional[dict]  # 从参考小说提取的 Move 结构
     story_ir: Optional[dict]  # 故事规划 IR
+    script_plan: Optional[dict]  # 轻量短剧执行计划（Planner 输出）
 
     # ============ 生成内容 ============
     plan_text: Optional[str]  # 故事规划文本
     draft_script: Optional[str]  # 生成的剧本草稿
     final_script: Optional[str]  # 最终剧本
+    verification_result: Optional[dict]  # 规则审核结果
+    revision_feedback: Optional[str]  # 反馈给 Executor 的重写建议
 
     # ============ 元数据 ============
     iteration_count: int  # 迭代次数
+    revision_count: int  # 规则审核触发的重写次数
     messages: Annotated[list[BaseMessage], add_messages]  # 对话历史
     error: Optional[str]  # 错误信息

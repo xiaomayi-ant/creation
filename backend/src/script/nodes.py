@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Any, Optional
 
 from langchain_community.chat_models import ChatTongyi
@@ -107,6 +108,67 @@ def _build_move_guidance_ir(
         "move_guidance": move_guidance,
     }
     return ir, json.dumps(ir, ensure_ascii=False, indent=2)
+
+
+def _json_text(payload: Any) -> str:
+    """Render compact, readable JSON for prompt sections."""
+    try:
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(payload)
+
+
+def _parse_duration_seconds(raw: Any) -> float:
+    """Parse values such as '3.0s', '30秒', or 4 into seconds."""
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw or "").strip().lower()
+    if not text or text == "系统推荐":
+        return 0.0
+    match = re.search(r"(\d+(?:\.\d+)?)", text)
+    if not match:
+        return 0.0
+    return float(match.group(1))
+
+
+def _extract_aigc_spec(final_script: str) -> dict[str, Any] | None:
+    """Extract the AIGC JSON object from the generated markdown text."""
+    if not final_script:
+        return None
+    marker = re.search(
+        r"(?:^|\n)\s*(?:#{1,3}\s*)?AIGC执行规格(?:\s*\(JSON\)|\s*（JSON）)?\s*\n",
+        final_script,
+    )
+    if not marker:
+        return None
+
+    section = final_script[marker.end():].strip()
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", section)
+    if fenced:
+        section = fenced.group(1).strip()
+
+    decoder = json.JSONDecoder()
+    start = section.find("{")
+    if start < 0:
+        return None
+    try:
+        value, _ = decoder.raw_decode(section[start:])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _retrieval_ref_ids(retrieval_results: Any) -> list[str]:
+    refs: list[str] = []
+    if not isinstance(retrieval_results, list):
+        return refs
+    for item in retrieval_results:
+        if not isinstance(item, dict):
+            continue
+        ref_id = f"{item.get('novel_id', 'unknown')}#{item.get('node_id', 'unknown')}"
+        if ref_id not in refs:
+            refs.append(ref_id)
+    return refs
 
 
 def get_llm(temperature: Optional[float] = None) -> BaseChatModel:
@@ -243,30 +305,106 @@ def load_reference_node(state: ScriptAgentState) -> dict[str, Any]:
 
 def plan_story_node(state: ScriptAgentState, config: RunnableConfig) -> dict[str, Any]:
     """
-    规划故事结构
+    规划短剧执行计划。
 
-    如果有参考小说的 Move 结构，则基于它规划
-    如果没有，则直接进入剧本生成
+    Planner 保持轻量、确定性：基于用户配置、检索引用和 Move 结果生成一个
+    可审计的 script_plan，供 write_scenes_node 按计划执行。
     """
     logger.info("📝 [Script] Plan Story Node")
 
     user_input = state.get("user_input", "")
-    user_instructions = state.get("user_instructions", "")
+    script_config = state.get("script_config") or {}
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
+    retrieval_results = state.get("retrieval_results")
 
-    if not move_codebook:
-        logger.info("无参考 Move，直接进入剧本生成")
-        return {
-            "plan_text": None,
-        }
+    ref_ids = _retrieval_ref_ids(retrieval_results)
+    references: list[dict[str, Any]] = []
+    if isinstance(retrieval_results, list):
+        for item in retrieval_results:
+            if not isinstance(item, dict):
+                continue
+            tree_node = item.get("tree_node")
+            if not isinstance(tree_node, dict):
+                tree_node = {}
+            ref_id = f"{item.get('novel_id', 'unknown')}#{item.get('node_id', 'unknown')}"
+            references.append(
+                {
+                    "ref_id": ref_id,
+                    "title": tree_node.get("title") or "",
+                    "summary": tree_node.get("summary") or "",
+                    "use_hint": "参考其叙事节奏、冲突推进或镜头情绪，不直接复刻原文。",
+                }
+            )
 
-    # 有参考小说时，可以先用 LLM 规划一下故事结构（可选）
-    # 这里可以复用 novel 的 plan_story_prompt，但暂时简化处理
-    # 先直接进入剧本生成阶段
+    moves = move_codebook.get("moves", []) if isinstance(move_codebook, dict) else []
+    move_hints = []
+    for move in moves[:6]:
+        if not isinstance(move, dict):
+            continue
+        move_hints.append(
+            {
+                "move_id": move.get("move_id"),
+                "name": move.get("name"),
+                "purpose": move.get("description") or move.get("core_idea") or "",
+                "emotional_beats": move.get("emotional_beats") or [],
+            }
+        )
+
+    duration_raw = script_config.get("duration") or state.get("target_duration_sec") or "系统推荐"
+    duration_sec = _parse_duration_seconds(duration_raw)
+    if duration_sec <= 0:
+        duration_sec = 30.0
+
+    shot_count = max(4, min(10, round(duration_sec / 4)))
+    scene_plan: list[dict[str, Any]] = []
+    purposes = [
+        "开场钩子，快速建立主角、场景和核心悬念",
+        "交代背景与人物关系，明确情绪基调",
+        "引入冲突或反转，让观众形成期待",
+        "升级行动与视觉张力，强化关键选择",
+        "推向高潮，集中呈现最强动作或情绪",
+        "收束结果，留下记忆点或余韵",
+    ]
+    for idx in range(shot_count):
+        source_refs = [ref_ids[idx % len(ref_ids)]] if ref_ids else []
+        move_hint = move_hints[idx % len(move_hints)] if move_hints else {}
+        scene_plan.append(
+            {
+                "id": idx + 1,
+                "purpose": purposes[min(idx, len(purposes) - 1)],
+                "visual_goal": move_hint.get("purpose") or "画面主体、动作、运镜必须明确",
+                "target_seconds": round(duration_sec / shot_count, 1),
+                "source_refs": source_refs,
+                "move_hint": move_hint.get("name") or "",
+            }
+        )
+
+    script_plan = {
+        "goal": user_input,
+        "constraints": {
+            "ratio": script_config.get("ratio", "16:9"),
+            "style": script_config.get("style", "动漫风"),
+            "duration": script_config.get("duration", "系统推荐"),
+            "narrator": script_config.get("narrator", "需要旁白"),
+            "mood": script_config.get("mood", "温馨感人"),
+            "density": script_config.get("density", "balanced"),
+            "target_chapters": target_chapters,
+        },
+        "references": references,
+        "move_hints": move_hints,
+        "scene_plan": scene_plan,
+        "quality_bar": [
+            "输出必须包含剧本概览、分镜设计、视觉风格、AIGC执行规格(JSON)",
+            "AIGC JSON 中 shots 数量应与分镜设计一致，且每个镜头有 summary、visualDesc、duration",
+            "若使用检索素材，shots.source_refs 必须来自 references.ref_id，并填写 source_reason",
+            "reference_trace 必须总结素材使用与未使用原因",
+        ],
+    }
 
     return {
-        "plan_text": None,
+        "script_plan": script_plan,
+        "plan_text": _json_text(script_plan),
     }
 
 
@@ -282,6 +420,8 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
     script_config = state.get("script_config", {})
     target_chapters = state.get("target_chapters", 1)
     move_codebook = state.get("move_codebook")
+    script_plan = state.get("script_plan")
+    revision_feedback = state.get("revision_feedback") or "（无，本次为首次生成或上一轮已通过）"
 
     try:
         llm = get_llm()
@@ -331,6 +471,8 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
             USER_INPUT=user_input + chapters_hint,
             REFERENCE_MATERIALS=reference_text,
             MOVE_GUIDANCE_IR=move_guidance_ir_text,
+            SCRIPT_PLAN=_json_text(script_plan or {}),
+            REVISION_FEEDBACK=revision_feedback,
         )
 
         if settings.debug_llm_io:
@@ -356,7 +498,7 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
         return {
             "draft_script": raw_text,
             "final_script": raw_text,
-            "iteration_count": 1,
+            "iteration_count": state.get("iteration_count", 0) + 1,
             "prompt_used": script_prompt,
             "move_guidance_ir": move_guidance_ir_obj,
         }
@@ -367,8 +509,153 @@ def write_scenes_node(state: ScriptAgentState, config: RunnableConfig) -> dict[s
             "draft_script": None,
             "final_script": None,
             "error": str(e),
-            "iteration_count": 1,
+            "iteration_count": state.get("iteration_count", 0) + 1,
         }
+
+
+def verify_script_node(state: ScriptAgentState) -> dict[str, Any]:
+    """
+    确定性审核 Executor 产出的剧本与 AIGC JSON。
+
+    该节点不调用 LLM，只做结构、引用、镜头与时长约束检查，并生成给下一轮
+    write_scenes_node 使用的 revision_feedback。
+    """
+    logger.info("🔎 [Script] Verify Script Node")
+
+    final_script = state.get("final_script") or ""
+    retrieval_ref_set = set(_retrieval_ref_ids(state.get("retrieval_results")))
+    critical_issues: list[str] = []
+    issues: list[str] = []
+
+    if "## 剧本概览" not in final_script:
+        issues.append("缺少 ## 剧本概览 段落")
+    if "## 分镜设计" not in final_script:
+        issues.append("缺少 ## 分镜设计 段落")
+    if "## 视觉风格" not in final_script:
+        issues.append("缺少 ## 视觉风格 段落")
+
+    aigc_spec = _extract_aigc_spec(final_script)
+    if not aigc_spec:
+        critical_issues.append("缺少可解析的 ## AIGC执行规格(JSON)")
+        verification_result = {
+            "passed": False,
+            "score": 0,
+            "critical_issues": critical_issues,
+            "issues": issues,
+            "revision_feedback": "请严格补齐 ## AIGC执行规格(JSON)，并确保 JSON 对象可被解析。",
+        }
+        return {
+            "verification_result": verification_result,
+            "revision_feedback": verification_result["revision_feedback"],
+            "revision_count": state.get("revision_count", 0) + 1,
+        }
+
+    shots = aigc_spec.get("shots")
+    if not isinstance(shots, list) or not shots:
+        critical_issues.append("AIGC JSON 中 shots 必须是非空数组")
+        shots = []
+
+    if shots and not (4 <= len(shots) <= 12):
+        issues.append(f"shots 数量为 {len(shots)}，建议控制在 4-12 个镜头")
+
+    total_duration = 0.0
+    used_refs: set[str] = set()
+    invalid_refs: set[str] = set()
+    for idx, shot in enumerate(shots, start=1):
+        if not isinstance(shot, dict):
+            critical_issues.append(f"第 {idx} 个 shot 不是 JSON 对象")
+            continue
+
+        if not str(shot.get("summary") or "").strip():
+            issues.append(f"第 {idx} 个 shot 缺少 summary")
+        if not str(shot.get("visualDesc") or shot.get("director_brief") or "").strip():
+            critical_issues.append(f"第 {idx} 个 shot 缺少 visualDesc/director_brief")
+        duration_sec = _parse_duration_seconds(shot.get("duration"))
+        if duration_sec <= 0:
+            issues.append(f"第 {idx} 个 shot 缺少有效 duration")
+        total_duration += duration_sec
+
+        source_refs_raw = shot.get("source_refs")
+        if isinstance(source_refs_raw, list):
+            source_refs = source_refs_raw
+            for ref in source_refs:
+                ref_text = str(ref).strip()
+                if not ref_text:
+                    continue
+                used_refs.add(ref_text)
+                if retrieval_ref_set and ref_text not in retrieval_ref_set:
+                    invalid_refs.add(ref_text)
+        else:
+            source_refs = []
+            issues.append(f"第 {idx} 个 shot 的 source_refs 应为数组")
+        if source_refs and not str(shot.get("source_reason") or "").strip():
+            issues.append(f"第 {idx} 个 shot 使用 source_refs 但缺少 source_reason")
+        if not source_refs and not str(shot.get("no_source_reason") or "").strip():
+            issues.append(f"第 {idx} 个 shot 未使用 source_refs 但缺少 no_source_reason")
+
+    if invalid_refs:
+        critical_issues.append(
+            "存在未命中检索集合的 source_refs: " + ", ".join(sorted(invalid_refs))
+        )
+
+    reference_trace = aigc_spec.get("reference_trace")
+    if not isinstance(reference_trace, dict):
+        issues.append("AIGC JSON 缺少 reference_trace")
+    elif retrieval_ref_set:
+        trace_refs = reference_trace.get("retrieval_refs")
+        if not isinstance(trace_refs, list) or not trace_refs:
+            issues.append("reference_trace.retrieval_refs 为空，无法追踪检索素材")
+
+    target_duration = state.get("target_duration_sec") or _parse_duration_seconds(
+        (state.get("script_config") or {}).get("duration")
+    )
+    if target_duration and total_duration:
+        lower = float(target_duration) * 0.65
+        upper = float(target_duration) * 1.45
+        if total_duration < lower or total_duration > upper:
+            issues.append(
+                f"shots 总时长约 {total_duration:.1f}s，与目标 {float(target_duration):.1f}s 偏差较大"
+            )
+
+    if retrieval_ref_set and not used_refs:
+        issues.append("已有检索参考素材，但 shots.source_refs 没有使用任何 ref_id")
+
+    score = max(0, 100 - len(critical_issues) * 35 - len(issues) * 8)
+    passed = not critical_issues and score >= 72
+    feedback_items = critical_issues + issues
+    if passed:
+        revision_feedback = ""
+    else:
+        revision_feedback = "请修复以下问题后重写剧本和 AIGC JSON：\n" + "\n".join(
+            f"- {item}" for item in feedback_items[:8]
+        )
+
+    verification_result = {
+        "passed": passed,
+        "score": score,
+        "critical_issues": critical_issues,
+        "issues": issues,
+        "used_refs": sorted(used_refs),
+        "retrieval_refs": sorted(retrieval_ref_set),
+        "estimated_duration_sec": round(total_duration, 1),
+        "revision_feedback": revision_feedback,
+    }
+
+    return {
+        "verification_result": verification_result,
+        "revision_feedback": revision_feedback,
+        "revision_count": state.get("revision_count", 0) + (0 if passed else 1),
+    }
+
+
+def route_after_verify(state: ScriptAgentState) -> str:
+    """Route to bounded revision or finalization after deterministic verification."""
+    result = state.get("verification_result") or {}
+    if result.get("passed"):
+        return "finalize"
+    if state.get("revision_count", 0) < 2:
+        return "revise"
+    return "finalize"
 
 
 def finalize_node(state: ScriptAgentState) -> dict[str, Any]:
