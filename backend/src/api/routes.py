@@ -23,6 +23,7 @@ from src.novel.graph import run_novel_agent, run_novel_agent_stream
 from src.core.logger import get_logger
 from src.core.config import settings
 from src.core.artifacts import persist_run_artifacts
+from src.script.memory import get_script_thread_memory, upsert_script_thread_memory
 
 logger = get_logger(__name__)
 
@@ -205,6 +206,22 @@ async def chat(request: ChatRequest):
             ],
         },
     }
+
+
+@router.get(
+    "/chat/memory/{thread_id}",
+    tags=["对话配置"],
+    summary="读取短剧线程记忆",
+    description="按 thread_id 返回后端保存的结构化 Thread Memory",
+)
+async def chat_memory(thread_id: str):
+    memory = get_script_thread_memory(thread_id)
+    if memory is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="未找到该 thread_id 的记忆记录",
+        )
+    return memory
 
 
 @router.post(
@@ -424,6 +441,16 @@ async def chat_submit(request: ConfigSubmitRequest):
             # 请求结束后落盘一次产物
             try:
                 backend_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                try:
+                    memory = upsert_script_thread_memory(
+                        request.thread_id,
+                        artifact_payload,  # type: ignore[arg-type]
+                    )
+                    artifact_payload["thread_memory_summary"] = memory.get("thread_summary")
+                    logger.info("已更新 Thread Memory: thread_id=%s", request.thread_id)
+                except Exception as memory_err:
+                    logger.warning("写入 Thread Memory 失败: %s", memory_err)
+
                 paths = persist_run_artifacts(
                     project_root=backend_root,
                     thread_id=request.thread_id,

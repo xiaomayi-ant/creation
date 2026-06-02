@@ -59,6 +59,32 @@ class StoryIRDB(Base):
         return f"<StoryIR {self.title}>"
 
 
+class ScriptThreadMemoryDB(Base):
+    """短剧线程记忆模型"""
+    __tablename__ = "script_thread_memories"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    thread_id = Column(String(100), nullable=False, unique=True, index=True)
+    user_input = Column(Text, default="", nullable=False)
+    selections = Column(JSON, default=dict)
+    script_config = Column(JSON, default=dict)
+    retrieval_references = Column(JSON, default=list)
+    move_codebook = Column(JSON)
+    script_plan = Column(JSON)
+    verification_result = Column(JSON)
+    quality_review_result = Column(JSON)
+    source_ref_trace = Column(JSON)
+    final_result = Column(JSON)
+    final_script = Column(Text, default="", nullable=False)
+    thread_summary = Column(Text, default="", nullable=False)
+    revision_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<ScriptThreadMemory {self.thread_id}>"
+
+
 class GeneratedChapterDB(Base):
     """生成的章节内容存储模型"""
     __tablename__ = "generated_chapters"
