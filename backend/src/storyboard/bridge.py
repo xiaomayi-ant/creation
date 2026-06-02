@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -69,8 +68,8 @@ def script_data_to_episode(
         narration = str(shot.get("narration", "")).strip()
         shot_name = str(shot.get("shotName", f"镜头{idx}")).strip()
 
-        image_prompt = _build_image_prompt(location, visual_desc)
-        video_prompt = _build_video_prompt(visual_desc, narration, movement, shot_type, angle, location)
+        image_prompt = build_image_prompt(location, visual_desc)
+        video_prompt = build_video_prompt(visual_desc, narration, movement, shot_type, angle, location)
 
         sb = StoryboardDB(
             episode_id=episode.id,
@@ -107,13 +106,13 @@ def _parse_duration(raw: Any) -> int:
         return 3
 
 
-def _build_image_prompt(location: str, visual_desc: str) -> str:
+def build_image_prompt(location: str, visual_desc: str) -> str:
     parts = [p for p in [location, visual_desc] if p]
     base = ", ".join(parts) if parts else "scene"
     return f"{base}, anime style, first frame"
 
 
-def _build_video_prompt(
+def build_video_prompt(
     visual_desc: str,
     narration: str,
     movement: str,

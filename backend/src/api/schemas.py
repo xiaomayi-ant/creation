@@ -291,6 +291,42 @@ class GenerateAigcResponse(BaseModel):
     message: str
 
 
+class ManualEditCharacter(BaseModel):
+    """Character edits from the storyboard review UI."""
+    id: str
+    name: str = ""
+    voice: str = ""
+    appearance: str = ""
+
+
+class ManualEditShot(BaseModel):
+    """Storyboard edits from the storyboard review UI."""
+    storyboard_number: int = Field(..., ge=1)
+    summary: str = ""
+    visual_desc: str = ""
+    narration: str = ""
+    tags: list[str] = Field(default_factory=list)
+    duration_seconds: float = Field(default=0.0, ge=0.0)
+    start_frame_url: Optional[str] = None
+    end_frame_url: Optional[str] = None
+    keyframe_urls: list[str] | None = None
+
+
+class SaveManualEditsRequest(BaseModel):
+    """Manual storyboard edits to persist before AIGC execution."""
+    characters: list[ManualEditCharacter] = Field(default_factory=list)
+    shots: list[ManualEditShot] = Field(default_factory=list)
+
+
+class SaveManualEditsResponse(BaseModel):
+    """Manual storyboard edit persistence result."""
+    episode_id: int
+    updated_storyboards: int
+    updated_characters: int
+    status: str
+    message: str
+
+
 class TransitionConfigSchema(BaseModel):
     """转场配置"""
     type: str = Field(default="none", description="转场类型: none/fade/dissolve/wipeleft/wiperight/slideleft/slideright")

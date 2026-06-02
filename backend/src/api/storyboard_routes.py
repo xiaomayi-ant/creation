@@ -11,9 +11,11 @@ from src.api.schemas import (
     GenerateAigcResponse,
     GenerateStoryboardRequest,
     GenerateStoryboardResponse,
+    SaveManualEditsRequest,
+    SaveManualEditsResponse,
     TaskStatusResponse,
-    VideoMergeRequest,
     VideoMergePrecheckResponse,
+    VideoMergeRequest,
     VideoMergeResponse,
 )
 from src.core.database import AsyncTaskDB, EpisodeDB, get_database
@@ -23,7 +25,7 @@ from src.storyboard.tasks.aigc_tasks import generate_aigc_task
 from src.storyboard.tasks.storyboard_tasks import generate_storyboard_task
 from src.storyboard.tasks.video_tasks import merge_episode_videos_task
 from src.storyboard.utils.ffmpeg_runner import (
-    TransitionConfig as MergeTransitionConfig,
+    TransitionConfig,
     VideoClip,
     precheck_merge,
 )
@@ -114,6 +116,26 @@ def generate_aigc(episode_id: int):
         session.close()
 
 
+@router.put("/episodes/{episode_id}/manual-edits", response_model=SaveManualEditsResponse)
+def save_manual_edits(episode_id: int, req: SaveManualEditsRequest):
+    """Persist human storyboard edits before AIGC generation."""
+    db = get_database()
+    session = db.get_session()
+    try:
+        try:
+            result = storyboard_service.save_episode_manual_edits(
+                session=session,
+                episode_id=episode_id,
+                characters=[item.model_dump() for item in req.characters],
+                shots=[item.model_dump() for item in req.shots],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return SaveManualEditsResponse(**result)
+    finally:
+        session.close()
+
+
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
 def get_task_status(task_id: str):
     """查询异步任务状态"""
@@ -163,7 +185,7 @@ def precheck_video_merge(req: VideoMergeRequest):
         for item in req.clips:
             transition = None
             if item.transition:
-                transition = MergeTransitionConfig(
+                transition = TransitionConfig(
                     type=item.transition.type,
                     duration=item.transition.duration,
                 )
